@@ -38,7 +38,7 @@ pub fn execute(state_machine: &mut StateMachine) {
 
 pub fn print_cpu_state(state_machine: &StateMachine, prefix: &str) {
     println!(
-        "{}: Clock {:?}, Reset {:?}, Addr: 0x{:04x}, Data 0x{:02x}, A 0x{:02x}, X 0x{:02x}, Y 0x{:02x}",
+        "{}:\tClock {:?}, Reset {:?}, Addr: 0x{:04x}, Data 0x{:02x}, A 0x{:02x}, X 0x{:02x}, Y 0x{:02x}",
         prefix,
         state_machine.pin_state.clock,
         state_machine.pin_state.reset_en,
@@ -96,6 +96,23 @@ mod detail {
                 state_machine.cpu_state.a = state_machine.pin_state.data_bus << 1;
                 inc_pc_and_address_it(state_machine);
             }
+            0x4C => {
+                // JMP $0x0000 (absolute)
+                state_machine.planned_executions.push_back(|sm| {
+                    sm.cpu_state.internal &= 0xFF00;
+                    sm.cpu_state.internal |= u16::from(sm.pin_state.data_bus);
+
+                    inc_pc_and_address_it(sm);
+                });
+                state_machine.planned_executions.push_back(|sm| {
+                    sm.cpu_state.internal &= 0x00FF;
+                    sm.cpu_state.internal |= u16::from(sm.pin_state.data_bus) << 8;
+
+                    set_pc_and_address_it(sm, sm.cpu_state.internal);
+                });
+
+                inc_pc_and_address_it(state_machine);
+            }
             _ => {
                 println!("unknown instruction -> reset CPU!");
                 exec_reset(state_machine);
@@ -124,6 +141,11 @@ mod detail {
             sm.cpu_state.pc |= u16::from(sm.pin_state.data_bus) << 8;
             sm.pin_state.address_bus = sm.cpu_state.pc;
         });
+    }
+
+    fn set_pc_and_address_it(state_machine: &mut StateMachine, new_pc: u16) {
+        state_machine.cpu_state.pc = new_pc;
+        state_machine.pin_state.address_bus = state_machine.cpu_state.pc;
     }
 
     fn inc_pc_and_address_it(state_machine: &mut StateMachine) {
