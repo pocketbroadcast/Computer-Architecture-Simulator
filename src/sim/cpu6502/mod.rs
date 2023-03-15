@@ -5,7 +5,7 @@ mod state_machine;
 use std::sync::mpsc::{self};
 use std::thread::{self};
 
-use crate::sim::cpu6502::state_machine::execute;
+use crate::sim::cpu6502::state_machine::{execute, print_cpu_state};
 
 use super::generic::receive_nonblocking;
 use state_machine::StateMachine;
@@ -17,7 +17,7 @@ pub struct Component {
     data_bus: mpsc::Receiver<u8>,
     address_bus: mpsc::Sender<u16>,
 
-    state_machine: StateMachine
+    state_machine: StateMachine,
 }
 
 impl Component {
@@ -33,7 +33,7 @@ impl Component {
             reset_en: reset_en,
             data_bus: data_bus,
             address_bus: address_bus,
-            state_machine: StateMachine::new()
+            state_machine: StateMachine::new(),
         }
     }
 
@@ -43,17 +43,23 @@ impl Component {
 
             self.state_machine.pin_state.clock = clock;
             if !clock {
-                println!("clock: falling-edge");
+                //println!("clock: falling-edge");
                 continue;
             }
 
-            println!("clock: rising-edge");
-            self.state_machine.pin_state.reset_en = receive_nonblocking(&self.reset_en, &self.state_machine.pin_state.reset_en);
-            self.state_machine.pin_state.data_bus = receive_nonblocking(&self.data_bus, &self.state_machine.pin_state.data_bus);
+            // println!("clock: rising-edge");
+            self.state_machine.pin_state.reset_en =
+                receive_nonblocking(&self.reset_en, &self.state_machine.pin_state.reset_en);
+            self.state_machine.pin_state.data_bus =
+                receive_nonblocking(&self.data_bus, &self.state_machine.pin_state.data_bus);
 
+            print_cpu_state(&self.state_machine, "before");
             execute(&mut self.state_machine);
+            print_cpu_state(&self.state_machine, "after");
 
-            self.address_bus.send(self.state_machine.pin_state.address_bus).unwrap();
+            self.address_bus
+                .send(self.state_machine.pin_state.address_bus)
+                .unwrap();
         });
     }
 }

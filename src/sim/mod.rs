@@ -16,6 +16,9 @@ pub fn run_sim1(memory : [u8;0xFFFF+1]) {
     let mem = sim_ram::Component::new(addressbus_rx, databus_tx, memory);
     mem.start();
 
+    thread::sleep(time::Duration::from_millis(1000));
+    println!("Setup completed - Simulation starts!");
+
     // reset first cycle (Reset is active low)
     reset_tx.send(false).unwrap();
     clk_tx.send(true).unwrap();

@@ -1,3 +1,5 @@
+use std::collections::LinkedList;
+
 use super::cpu_state::CPUState;
 use super::pin_state::PinState;
 
@@ -5,7 +7,7 @@ pub struct StateMachine {
     cpu_state: CPUState,
     pub pin_state: PinState,
 
-    planned_executions: Vec<fn(&mut StateMachine)>,
+    planned_executions: LinkedList<fn(&mut StateMachine)>,
 }
 
 impl StateMachine {
@@ -13,31 +15,39 @@ impl StateMachine {
         Self {
             cpu_state: CPUState::new(),
             pin_state: PinState::new(),
-            planned_executions: Vec::new(),
+            planned_executions: LinkedList::new(),
         }
     }
 
     pub fn reset(self: &mut Self) {
         self.cpu_state.reset();
-        self.pin_state.reset();
+        // do not reset pin state! (as this is given by external components)
+        //self.pin_state.reset();
         self.planned_executions.clear();
     }
 }
 
 pub fn execute(state_machine: &mut StateMachine) {
-    println!(
-        "Clock {:?}, Reset {:?}, Addr: 0x{:04x}, Data 0x{:02x}",
-        state_machine.pin_state.clock,
-        state_machine.pin_state.reset_en,
-        state_machine.pin_state.address_bus,
-        state_machine.pin_state.data_bus
-    );
-
     if !state_machine.pin_state.reset_en {
         detail::exec_reset(state_machine);
+        return;
     }
 
     detail::exec_next(state_machine)
+}
+
+pub fn print_cpu_state(state_machine: &StateMachine, prefix: &str) {
+    println!(
+        "{}: Clock {:?}, Reset {:?}, Addr: 0x{:04x}, Data 0x{:02x}, A 0x{:02x}, X 0x{:02x}, Y 0x{:02x}",
+        prefix,
+        state_machine.pin_state.clock,
+        state_machine.pin_state.reset_en,
+        state_machine.pin_state.address_bus,
+        state_machine.pin_state.data_bus,
+        state_machine.cpu_state.a,
+        state_machine.cpu_state.x,
+        state_machine.cpu_state.y,
+    );
 }
 
 mod detail {
@@ -45,29 +55,80 @@ mod detail {
     use super::StateMachine;
 
     pub fn exec_next(state_machine: &mut StateMachine) {
-        if let Some(next) = state_machine.planned_executions.pop() {
+        if let Some(next) = state_machine.planned_executions.pop_front() {
             next(state_machine);
         } else {
-            println!("No further executions are planned!");
+            //println!("No further executions are planned!");
+            exec_default(state_machine);
         }
-
-        exec_default(state_machine);
     }
 
     pub fn exec_default(state_machine: &mut StateMachine) {
         // fetch next instruction
         let next_instruction = state_machine.pin_state.data_bus;
-        println!("Next instruction fetched is 0x{:02x}", next_instruction);
+        //println!("Next instruction fetched is 0x{:02x}", next_instruction);
 
         // decode instruction
         //...
-        inc_pc(&mut state_machine.cpu_state);
-        state_machine.pin_state.address_bus = state_machine.cpu_state.pc;
+        match next_instruction {
+            0xA9 => {
+                // LDA immediate
+                state_machine.planned_executions.push_back(|sm| {
+                    sm.cpu_state.a = sm.pin_state.data_bus;
+
+                    inc_pc_and_address_it(sm);
+                });
+
+                inc_pc_and_address_it(state_machine);
+            }
+            0x29 => {
+                // AND immediate
+                state_machine.planned_executions.push_back(|sm| {
+                    sm.cpu_state.a &= sm.pin_state.data_bus;
+
+                    inc_pc_and_address_it(sm);
+                });
+
+                inc_pc_and_address_it(state_machine);
+            }
+            0x0A => {
+                // ASL A
+                state_machine.cpu_state.a = state_machine.pin_state.data_bus << 1;
+                inc_pc_and_address_it(state_machine);
+            }
+            _ => {
+                println!("unknown instruction -> reset CPU!");
+                exec_reset(state_machine);
+            }
+        }
+
+        // inc_pc(&mut state_machine.cpu_state);
+        // state_machine.pin_state.address_bus = state_machine.cpu_state.pc;
     }
 
     pub fn exec_reset(state_machine: &mut StateMachine) {
         println!("Reset processor");
         state_machine.reset();
+
+        state_machine.pin_state.address_bus = 0xfffc;
+        //state_machine.planned_executions.push(|sm| {
+        //   sm.pin_state.address_bus = 0xfffc;
+        //});
+        state_machine.planned_executions.push_back(|sm| {
+            sm.cpu_state.pc &= 0xFF00;
+            sm.cpu_state.pc |= u16::from(sm.pin_state.data_bus);
+            sm.pin_state.address_bus = 0xfffd;
+        });
+        state_machine.planned_executions.push_back(|sm| {
+            sm.cpu_state.pc &= 0x00FF;
+            sm.cpu_state.pc |= u16::from(sm.pin_state.data_bus) << 8;
+            sm.pin_state.address_bus = sm.cpu_state.pc;
+        });
+    }
+
+    fn inc_pc_and_address_it(state_machine: &mut StateMachine) {
+        inc_pc(&mut state_machine.cpu_state);
+        state_machine.pin_state.address_bus = state_machine.cpu_state.pc;
     }
 
     fn inc_pc(cpu_state: &mut CPUState) {
