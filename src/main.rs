@@ -98,16 +98,17 @@ impl<'a> PinState<'a> {
 struct CPU6502<'a> {
     state: CPUState,
     pin_state: PinState<'a>,
+
+    next_execution: Vec<fn(&mut CPU6502<'a>)>,
 }
 
 impl<'a> CPU6502<'a> {
     fn new() -> Self {
-        let mut new_statemachine = Self {
+        let new_statemachine = Self {
             state: CPUState::new(),
             pin_state: PinState::new(),
+            next_execution: Vec::new(),
         };
-
-        //new_statemachine.reset();
 
         new_statemachine
     }
@@ -116,35 +117,53 @@ impl<'a> CPU6502<'a> {
         println!("Reset");
 
         self.state.reset();
+        self.next_execution.clear();
 
         self
     }
 
-    fn clockTick(self: &mut Self, rising_edge: bool) -> &mut Self {
+    fn clockTick(self: &mut Self, rising_edge: bool) -> () {
         if rising_edge {
-            println!("rising edge!");
-            self.progress();
+            //println!("rising edge!");
+            self.next();
         }
-
-        self
     }
 
-    fn progress(self: &mut Self) -> &mut Self {
+    fn inc_pc(self: &mut Self){
+        
+        if self.state.pc < std::u16::MAX {
+            self.state.pc += 1;
+        } else {
+            self.state.pc = 0;
+        }
+    }
+
+    fn next(self: &mut Self) -> () {
         if let SignalState::LOW = self.pin_state.reset_en.state {
             self.execReset();
 
-            return self;
+            return;
         }
 
         // do execution
-        println!("do smth productive!");
+        // println!("do smth productive!");
+        self.next_execution.push(|cpu: &mut Self| -> () {
+            // println!("do something on cpu! {:?}", cpu.state.pc);
+            cpu.inc_pc();
+            cpu.pin_state.address_bus.set(cpu.state.pc);
+        });
 
-        self
+        if let Some(next) = self.next_execution.pop() {
+            next(self);
+        }
+
+        return;
     }
 }
 
 fn main() {
-    let x = Rc::new(RefCell::new(CPU6502::new()));
+    let cpu = CPU6502::new();
+    let x = Rc::new(RefCell::new(cpu));
 
     let mut sig_clock = Signal::new();
     sig_clock.register_on_change(Box::new(|s| {
@@ -162,7 +181,7 @@ fn main() {
         .pin_state
         .address_bus
         .register_on_change(Box::new(|s| {
-            println!("address bus changed");
+            println!("address bus changed to: {:?}", s);
         }));
 
     sig_reset.set(SignalState::LOW);
@@ -170,6 +189,16 @@ fn main() {
     sig_reset.set(SignalState::HIGH);
     sig_clock.set(SignalState::LOW);
 
+    for _ in 1..100 {
+        sig_clock.set(SignalState::HIGH);
+        sig_clock.set(SignalState::LOW);
+    }
+
+    sig_reset.set(SignalState::LOW);
+    sig_clock.set(SignalState::HIGH);
+    sig_reset.set(SignalState::HIGH);
+    sig_clock.set(SignalState::LOW);
+    
     loop {
         sig_clock.set(SignalState::HIGH);
         sig_clock.set(SignalState::LOW);
