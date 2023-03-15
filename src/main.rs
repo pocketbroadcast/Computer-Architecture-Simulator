@@ -1,4 +1,6 @@
-use std::{cell::RefCell, rc::Rc};
+mod sim;
+
+use crate::sim::run_test;
 
 struct CPUState {
     a: u8,
@@ -80,6 +82,7 @@ impl<'a, T: Default + Copy> Signal<'a, T> {
 
 struct PinState<'a> {
     reset_en: Signal<'a, SignalState>,
+    clock: Signal<'a, SignalState>,
 
     data_bus: Signal<'a, u8>,
     address_bus: Signal<'a, u16>,
@@ -88,6 +91,7 @@ struct PinState<'a> {
 impl<'a> PinState<'a> {
     fn new() -> Self {
         Self {
+            clock: Signal::new(),
             reset_en: Signal::new(),
             data_bus: Signal::new(),
             address_bus: Signal::new(),
@@ -129,8 +133,7 @@ impl<'a> CPU6502<'a> {
         }
     }
 
-    fn inc_pc(self: &mut Self){
-        
+    fn inc_pc(self: &mut Self) {
         if self.state.pc < std::u16::MAX {
             self.state.pc += 1;
         } else {
@@ -145,6 +148,10 @@ impl<'a> CPU6502<'a> {
             return;
         }
 
+        println!(
+            "Status: PC 0x{:04x}, Addr: 0x{:04x}, Data 0x{:02x}",
+            self.state.pc, self.pin_state.address_bus.state, self.pin_state.data_bus.state
+        );
         // do execution
         // println!("do smth productive!");
         self.next_execution.push(|cpu: &mut Self| -> () {
@@ -161,47 +168,94 @@ impl<'a> CPU6502<'a> {
     }
 }
 
-fn main() {
-    let cpu = CPU6502::new();
-    let x = Rc::new(RefCell::new(cpu));
+struct MemorySim<'a> {
+    mem: [u8; 0xFFFF + 1],
 
-    let mut sig_clock = Signal::new();
-    sig_clock.register_on_change(Box::new(|s| {
-        if let SignalState::HIGH = s {
-            x.borrow_mut().clockTick(true);
+    address_bus: Signal<'a, u16>,
+    data_bus: Signal<'a, u8>,
+}
+
+impl<'a> MemorySim<'a> {
+    fn new(init_mem: [u8; 0xFFFF + 1]) -> Self {
+        let new_memory_sim = Self {
+            mem: init_mem,
+            data_bus: Signal::new(),
+            address_bus: Signal::new(),
+        };
+
+        new_memory_sim
+    }
+
+    fn set_address_bus(self: &mut Self, address_bus: &Signal<'a, u16>) -> () {
+        self.address_bus.set(address_bus.state);
+        self.data_bus
+            .set(self.mem[usize::from(self.address_bus.state)]);
+    }
+}
+
+struct SimState<'a> {
+    reset: bool,
+    clock: bool,
+    cpu: CPU6502<'a>,
+    memory: MemorySim<'a>,
+}
+
+impl<'a> SimState<'a> {
+    fn step(self: &mut Self, clock: bool, reset: bool) {
+        self.clock = clock;
+        self.reset = reset;
+        self.connect_components();
+    }
+
+    fn connect_components(self: &mut Self) {
+        if self.reset {
+            self.cpu.pin_state.reset_en.set(SignalState::LOW)
+        } else {
+            self.cpu.pin_state.reset_en.set(SignalState::HIGH)
         }
-    }));
 
-    let mut sig_reset = Signal::new();
-    sig_reset.register_on_change(Box::new(|s| {
-        x.borrow_mut().pin_state.reset_en.set(s);
-    }));
+        self.memory.set_address_bus(&self.cpu.pin_state.address_bus);
+        self.cpu.pin_state.data_bus.set(self.memory.data_bus.state);
 
-    x.borrow_mut()
-        .pin_state
-        .address_bus
-        .register_on_change(Box::new(|s| {
-            println!("address bus changed to: {:?}", s);
-        }));
-
-    sig_reset.set(SignalState::LOW);
-    sig_clock.set(SignalState::HIGH);
-    sig_reset.set(SignalState::HIGH);
-    sig_clock.set(SignalState::LOW);
-
-    for _ in 1..100 {
-        sig_clock.set(SignalState::HIGH);
-        sig_clock.set(SignalState::LOW);
+        if self.clock {
+            self.cpu.pin_state.clock.set(SignalState::HIGH);
+        } else {
+            self.cpu.pin_state.clock.set(SignalState::LOW);
+        }
+        self.cpu.clockTick(self.clock);
     }
+}
 
-    sig_reset.set(SignalState::LOW);
-    sig_clock.set(SignalState::HIGH);
-    sig_reset.set(SignalState::HIGH);
-    sig_clock.set(SignalState::LOW);
+fn main() {
+    run_test();
     
-    loop {
-        sig_clock.set(SignalState::HIGH);
-        sig_clock.set(SignalState::LOW);
+    let mut raw_mem = [0; 0xFFFF + 1];
+
+    for x in 0..0xFFFF {
+        let num = x % 4;
+        raw_mem[x] = match num {
+            0 => 0xDE,
+            1 => 0xAD,
+            2 => 0xBE,
+            3 => 0xEF,
+            _ => 0x00,
+        };
     }
-    //x.borrow_mut().pin_state.address_bus.set(23);
+
+    let mut sim = SimState {
+        reset: false,
+        clock: false,
+        cpu: CPU6502::new(),
+        memory: MemorySim::new(raw_mem),
+    };
+
+    // reset sequence
+    sim.step(true, true);
+    sim.step(false, false);
+
+    let mut tick = true;
+    loop {
+        sim.step(tick, false);
+        tick = !tick;
+    }
 }
