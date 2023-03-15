@@ -2,64 +2,79 @@ mod cpu_state;
 mod pin_state;
 mod state_machine;
 
-use std::sync::mpsc::{self};
-use std::thread::{self};
-
 use crate::sim::cpu6502::state_machine::{execute, print_cpu_state};
 
-use super::generic::receive_nonblocking;
+use super::generic::Connection;
 use state_machine::StateMachine;
 
 pub struct Component {
-    clock: mpsc::Receiver<bool>,
-    reset_en: mpsc::Receiver<bool>,
+    clock_in: Connection<bool>,
+    reset_en_in: Connection<bool>,
 
-    data_bus: mpsc::Receiver<u8>,
-    address_bus: mpsc::Sender<u16>,
+    data_bus_inout: Connection<u8>,
+    rwb_out: Connection<bool>,
+
+    address_bus_out: Connection<u16>,
 
     state_machine: StateMachine,
 }
 
 impl Component {
     pub fn new(
-        clock: mpsc::Receiver<bool>,
-        reset_en: mpsc::Receiver<bool>,
+        clock_in: Connection<bool>,
+        reset_en_in: Connection<bool>,
 
-        data_bus: mpsc::Receiver<u8>,
-        address_bus: mpsc::Sender<u16>,
+        data_bus_inout: Connection<u8>,
+        rwb_out: Connection<bool>,
+
+        address_bus_out: Connection<u16>,
     ) -> Self {
         Self {
-            clock: clock,
-            reset_en: reset_en,
-            data_bus: data_bus,
-            address_bus: address_bus,
+            clock_in: clock_in,
+            reset_en_in: reset_en_in,
+            data_bus_inout: data_bus_inout,
+            rwb_out: rwb_out,
+            address_bus_out: address_bus_out,
             state_machine: StateMachine::new(),
         }
     }
 
-    pub fn start(mut self: Self) {
-        thread::spawn(move || loop {
-            let clock = self.clock.recv().unwrap();
+    pub fn tick(&mut self) {
+        let clock = self.clock_in.read_copy();
 
-            self.state_machine.pin_state.clock = clock;
-            if !clock {
-                //println!("clock: falling-edge");
-                continue;
-            }
+        if self.state_machine.pin_state.clock == clock {
+            // same cycle again? -> abort
+            return;
+        }
 
-            // println!("clock: rising-edge");
-            self.state_machine.pin_state.reset_en =
-                receive_nonblocking(&self.reset_en, &self.state_machine.pin_state.reset_en);
-            self.state_machine.pin_state.data_bus =
-                receive_nonblocking(&self.data_bus, &self.state_machine.pin_state.data_bus);
+        self.state_machine.pin_state.clock = clock;
+        if !clock {
+            // falling edge -> no thanks!
+            println!("clock: falling-edge");
+            return;
+        }
 
-            print_cpu_state(&self.state_machine, "before");
-            execute(&mut self.state_machine);
-            print_cpu_state(&self.state_machine, "after");
+        println!("clock: rising-edge");
+        self.state_machine.pin_state.reset_en = self.reset_en_in.read_copy();
 
-            self.address_bus
-                .send(self.state_machine.pin_state.address_bus)
-                .unwrap();
-        });
+        if self.state_machine.pin_state.rwb {
+            // only update state with external data if in read mode
+            self.state_machine.pin_state.data_bus = self.data_bus_inout.read_copy();
+        }
+
+        print_cpu_state(&self.state_machine, "before");
+        execute(&mut self.state_machine);
+        print_cpu_state(&self.state_machine, "after");
+
+        self.address_bus_out
+            .write_copy(self.state_machine.pin_state.address_bus);
+
+        if !self.state_machine.pin_state.rwb {
+            // update external data with state if in write mode
+            self.data_bus_inout
+                .write_copy(self.state_machine.pin_state.data_bus);
+        }
+
+        self.rwb_out.write_copy(self.state_machine.pin_state.rwb);
     }
 }

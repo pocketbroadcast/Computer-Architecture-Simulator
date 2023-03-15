@@ -14,7 +14,7 @@ fn main() {
     raw_mem[0x8006] = 0x00;
     raw_mem[0x8007] = 0x80;
 
-    raw_mem[0xfffc] = 0x00; // .org 8000
+    raw_mem[0xfffc] = 0x02; // .org 8000
     raw_mem[0xfffd] = 0x80;
 
     run_sim1(raw_mem);

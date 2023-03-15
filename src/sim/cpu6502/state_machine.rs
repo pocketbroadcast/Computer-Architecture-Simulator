@@ -38,11 +38,12 @@ pub fn execute(state_machine: &mut StateMachine) {
 
 pub fn print_cpu_state(state_machine: &StateMachine, prefix: &str) {
     println!(
-        "{}:\tClock {:?}, Reset {:?}, Addr: 0x{:04x}, Data 0x{:02x}, A 0x{:02x}, X 0x{:02x}, Y 0x{:02x}",
+        "{}:\tClock {:5}, Reset {:5}, Addr: 0x{:04x}, RWB {:5}, Data 0x{:02x}, A 0x{:02x}, X 0x{:02x}, Y 0x{:02x}",
         prefix,
         state_machine.pin_state.clock,
         state_machine.pin_state.reset_en,
         state_machine.pin_state.address_bus,
+        state_machine.pin_state.rwb,
         state_machine.pin_state.data_bus,
         state_machine.cpu_state.a,
         state_machine.cpu_state.x,

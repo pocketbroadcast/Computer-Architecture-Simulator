@@ -3,6 +3,7 @@ pub struct PinState {
     pub reset_en: bool,
 
     pub data_bus: u8,
+    pub rwb: bool,
     pub address_bus: u16,
 }
 
@@ -12,6 +13,7 @@ impl PinState {
             clock: false,
             reset_en: false,
             data_bus: 0x00,
+            rwb: true,
             address_bus: 0xFFFF,
         };
 
@@ -24,6 +26,7 @@ impl PinState {
         self.clock = false;
         self.reset_en = false;
         self.data_bus = 0x00;
+        self.rwb = true;
         self.address_bus = 0xFFFF;
 
         self

@@ -1,30 +1,41 @@
-use std::sync::mpsc::{self};
-use std::thread::{self};
+use super::generic::Connection;
 
 pub struct Component {
-    address_bus: mpsc::Receiver<u16>,
-    data_bus: mpsc::Sender<u8>,
+    address_bus_in: Connection<u16>,
+    data_bus_inout: Connection<u8>,
+    write_en_in: Connection<bool>,
 
-    memory: [u8;0xFFFF+1],
+    memory: [u8; 0xFFFF + 1],
 }
 
 impl Component {
     pub fn new(
-        address_bus: mpsc::Receiver<u16>,
-        data_bus: mpsc::Sender<u8>,
-        memory: [u8; 0xFFFF+1]
+        address_bus_in: Connection<u16>,
+        data_bus_inout: Connection<u8>,
+        write_en_in: Connection<bool>,
+        memory: [u8; 0xFFFF + 1],
     ) -> Self {
         Self {
-            data_bus: data_bus,
-            address_bus: address_bus,
-            memory: memory
+            address_bus_in: address_bus_in,
+            data_bus_inout: data_bus_inout,
+            write_en_in: write_en_in,
+            memory: memory,
         }
     }
 
-    pub fn start(self: Self) {
-        thread::spawn(move || loop {
-            let address = self.address_bus.recv().unwrap();
-            self.data_bus.send(self.memory[usize::from(address)]).unwrap();
-        });
+    pub fn tick(&mut self, cs: bool) {
+        if !cs {
+            return;
+        }
+
+        let address = self.address_bus_in.read_copy();
+        let write_en = self.write_en_in.read_copy();
+
+        if write_en {
+            self.memory[usize::from(address)] = self.data_bus_inout.read_copy();
+        } else {
+            self.data_bus_inout
+                .write_copy(self.memory[usize::from(address)]);
+        }
     }
 }
