@@ -55,8 +55,6 @@ mod detail {
     use super::StateMachine;
 
     pub fn exec_next(state_machine: &mut StateMachine) {
-        // no matter what, fall back to default RWB
-        state_machine.pin_state.rwb = true;
 
         if let Some(next) = state_machine.planned_executions.pop_front() {
             next(state_machine);
@@ -131,8 +129,11 @@ mod detail {
                     sm.pin_state.address_bus = sm.cpu_state.internal;
                     sm.pin_state.data_bus = sm.cpu_state.a;
                     sm.pin_state.rwb = false;
+                });
+                state_machine.planned_executions.push_back(|sm| {
+                    sm.pin_state.rwb = true;
 
-                    inc_pc(sm);
+                    inc_pc_and_address_it(sm);
                 });
 
                 inc_pc_and_address_it(state_machine);
