@@ -52,10 +52,12 @@ pub fn print_cpu_state(state_machine: &StateMachine, prefix: &str) {
 }
 
 mod detail {
-    use super::CPUState;
     use super::StateMachine;
 
     pub fn exec_next(state_machine: &mut StateMachine) {
+        // no matter what, fall back to default RWB
+        state_machine.pin_state.rwb = true;
+
         if let Some(next) = state_machine.planned_executions.pop_front() {
             next(state_machine);
         } else {
@@ -64,7 +66,7 @@ mod detail {
         }
     }
 
-    pub fn exec_default(state_machine: &mut StateMachine) {
+    fn exec_default(state_machine: &mut StateMachine) {
         // fetch next instruction
         let next_instruction = state_machine.pin_state.data_bus;
         //println!("Next instruction fetched is 0x{:02x}", next_instruction);
@@ -114,6 +116,28 @@ mod detail {
 
                 inc_pc_and_address_it(state_machine);
             }
+            0x8D => {
+                // STA $0x0000 (store accumulator absolute)
+                state_machine.planned_executions.push_back(|sm| {
+                    sm.cpu_state.internal &= 0xFF00;
+                    sm.cpu_state.internal |= u16::from(sm.pin_state.data_bus);
+
+                    inc_pc_and_address_it(sm);
+                });
+                state_machine.planned_executions.push_back(|sm| {
+                    sm.cpu_state.internal &= 0x00FF;
+                    sm.cpu_state.internal |= u16::from(sm.pin_state.data_bus) << 8;
+
+                    sm.pin_state.address_bus = sm.cpu_state.internal;
+                    sm.pin_state.data_bus = sm.cpu_state.a;
+                    sm.pin_state.rwb = false;
+
+                    inc_pc(sm);
+                });
+
+                inc_pc_and_address_it(state_machine);
+            }
+
             _ => {
                 println!("unknown instruction -> reset CPU!");
                 exec_reset(state_machine);
@@ -150,16 +174,16 @@ mod detail {
     }
 
     fn inc_pc_and_address_it(state_machine: &mut StateMachine) {
-        inc_pc(&mut state_machine.cpu_state);
+        inc_pc(state_machine);
         state_machine.pin_state.address_bus = state_machine.cpu_state.pc;
     }
 
-    fn inc_pc(cpu_state: &mut CPUState) {
-        if cpu_state.pc < std::u16::MAX {
-            cpu_state.pc += 1;
+    fn inc_pc(state_machine: &mut StateMachine) {
+        if state_machine.cpu_state.pc < std::u16::MAX {
+            state_machine.cpu_state.pc += 1;
         } else {
             println!("Program counter overflow!!!");
-            cpu_state.pc = 0;
+            state_machine.cpu_state.pc = 0;
         }
     }
 }
