@@ -21,19 +21,22 @@ pub fn run_sim1(memory: [u8; 0xFFFF + 1]) {
         addressbus_signal.create_connection(),
     );
 
-    let write_en_signal: Signal<bool> = Signal::new();
+    let rwb_bar_signal: Signal<bool> = Signal::new();
+    let ram_cs_bar_signal: Signal<bool> = Signal::new();
 
     let mut mem = sim_ram::Component::new(
         addressbus_signal.create_connection(),
         databus_signal.create_connection(),
-        write_en_signal.create_connection(),
+        rwb_signal.create_connection(),
+        rwb_bar_signal.create_connection(),
+        ram_cs_bar_signal.create_connection(),
         memory,
     );
 
     let mut nand = nand::Component::new(
         rwb_signal.create_connection(),
         rwb_signal.create_connection(),
-        write_en_signal.create_connection(),
+        rwb_bar_signal.create_connection(),
     );
 
     let sim_step_duration = time::Duration::from_millis(10);
@@ -49,8 +52,7 @@ pub fn run_sim1(memory: [u8; 0xFFFF + 1]) {
 
     let mut sim_step = 0u32;
     let mut cycle = 0u32;
-    
-    let mut cs : bool = false;
+
     loop {
         if sim_step < u32::MAX {
             sim_step += 1;
@@ -63,14 +65,13 @@ pub fn run_sim1(memory: [u8; 0xFFFF + 1]) {
             clk_sim_connection.write_copy(true);
         } else if sim_step % clock_cycle_sim_steps == 2 {
             clk_sim_connection.write_copy(false);
-            cs = true; // startup hack...otherwise we have a race between write enabled (nand) via rwb and the databus
         }
 
         rst_sim_connection.write_copy(cycle != 1);
 
         cpu.tick();
         nand.tick();
-        mem.tick(cs);
+        mem.tick();
 
         thread::sleep(sim_step_duration);
     }

@@ -2,6 +2,7 @@ mod cpu_state;
 mod pin_state;
 mod state_machine;
 
+use defer::defer;
 use crate::sim::cpu6502::state_machine::{execute, print_cpu_state};
 
 use super::generic::Connection;
@@ -40,6 +41,8 @@ impl Component {
     }
 
     pub fn tick(&mut self) {
+        defer(|| self.write_state());
+
         let clock = self.clock_in.read_copy();
 
         if self.state_machine.pin_state.clock == clock {
@@ -66,6 +69,10 @@ impl Component {
         execute(&mut self.state_machine);
         print_cpu_state(&self.state_machine, "after");
 
+        self.write_state();
+    }
+
+    fn write_state(&self) {
         self.address_bus_out
             .write_copy(self.state_machine.pin_state.address_bus);
 
