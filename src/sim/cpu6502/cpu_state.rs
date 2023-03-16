@@ -3,13 +3,15 @@ pub struct CPUState {
     pub x: u8,
     pub y: u8,
 
-    pub sp: u16, // 8 bit setable with 0x0100 memory offset
+    pub sp: u8, // 8 bit setable with 0x0100 memory offset
     pub pc: u16,
     
     pub internal: u16,
 }
 
 impl CPUState {
+    pub const SP_MEM_OFFSET: u16 = 0x100;
+    
     pub fn new() -> Self {
         let mut new_state = Self {
             a: 0,
@@ -17,7 +19,7 @@ impl CPUState {
             y: 0,
 
             pc: 0x0000, // gets loaded from FFFC (low byte) FFFD (high byte) -> little endian,
-            sp: 0x01FF,
+            sp: 0xFF,
             
             internal: 0x0000,
         };
@@ -32,7 +34,7 @@ impl CPUState {
         self.x = 0;
         self.y = 0;
         self.pc = 0x0000; // gets loaded from FFFC (low byte) FFFD (high byte) -> little endian,
-        self.sp = 0x01FF;
+        self.sp = 0xFF;
         
         self.internal = 0x0000;
 

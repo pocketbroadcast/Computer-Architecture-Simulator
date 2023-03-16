@@ -52,10 +52,11 @@ pub fn print_cpu_state(state_machine: &StateMachine, prefix: &str) {
 }
 
 mod detail {
+    use crate::sim::cpu6502::cpu_state::CPUState;
+
     use super::StateMachine;
 
     pub fn exec_next(state_machine: &mut StateMachine) {
-
         if let Some(next) = state_machine.planned_executions.pop_front() {
             next(state_machine);
         } else {
@@ -94,7 +95,83 @@ mod detail {
             }
             0x0A => {
                 // ASL A
-                state_machine.cpu_state.a = state_machine.cpu_state.a << 1;
+                state_machine.planned_executions.push_back(|sm| {
+                    sm.cpu_state.a = sm.cpu_state.a << 1;
+                });
+
+                inc_pc_and_address_it(state_machine);
+            }
+            0x20 => {
+                // JSR $0x0000 (jump to subroutine)
+
+                // load jump destination
+                state_machine.planned_executions.push_back(|sm| {
+                    sm.cpu_state.internal &= 0xFF00;
+                    sm.cpu_state.internal |= u16::from(sm.pin_state.data_bus);
+
+                    inc_pc_and_address_it(sm);
+                });
+                state_machine.planned_executions.push_back(|sm| {
+                    sm.cpu_state.internal &= 0x00FF;
+                    sm.cpu_state.internal |= u16::from(sm.pin_state.data_bus) << 8;
+
+                    inc_pc_and_address_it(sm);
+                });
+
+                // store pc to stack
+                state_machine.planned_executions.push_back(|sm| {
+                    // push high byte of pc to stack
+                    sm.pin_state.address_bus = CPUState::SP_MEM_OFFSET | u16::from(sm.cpu_state.sp);
+                    sm.cpu_state.sp -= 1;
+                    sm.pin_state.data_bus = sm.cpu_state.pc.to_le_bytes()[1];
+                    sm.pin_state.rwb = false;
+                });
+                state_machine.planned_executions.push_back(|sm| {
+                    // push low byte of pc to stack
+                    sm.pin_state.address_bus = CPUState::SP_MEM_OFFSET | u16::from(sm.cpu_state.sp);
+                    sm.cpu_state.sp -= 1;
+                    sm.pin_state.data_bus = sm.cpu_state.pc.to_le_bytes()[0];
+                    sm.pin_state.rwb = false;
+                });
+
+                // set jump destination to pc
+                state_machine.planned_executions.push_back(|sm| {
+                    sm.cpu_state.pc &= 0xFF00;
+                    sm.cpu_state.pc |= u16::from(sm.cpu_state.internal.to_le_bytes()[0]);
+
+                    sm.pin_state.rwb = true;
+                });
+                state_machine.planned_executions.push_back(|sm| {
+                    sm.cpu_state.pc &= 0x00FF;
+                    sm.cpu_state.pc |= u16::from(sm.cpu_state.internal.to_le_bytes()[1]) << 8;
+
+                    set_pc_and_address_it(sm, sm.cpu_state.pc);
+                });
+
+                inc_pc_and_address_it(state_machine);
+            }
+            0x60 => {
+                // RTS
+                // read pc from stack
+                state_machine.planned_executions.push_back(|sm| {
+                    // pull low byte of pc from stack
+                    sm.cpu_state.sp += 1;
+                    sm.pin_state.address_bus = CPUState::SP_MEM_OFFSET | u16::from(sm.cpu_state.sp);
+                });
+                state_machine.planned_executions.push_back(|sm| {
+                    // pull high byte of pc from stack
+                    sm.cpu_state.sp += 1;
+                    sm.pin_state.address_bus = CPUState::SP_MEM_OFFSET | u16::from(sm.cpu_state.sp);
+
+                    sm.cpu_state.pc &= 0xFF00;
+                    sm.cpu_state.pc |= u16::from(sm.pin_state.data_bus);
+                });
+                state_machine.planned_executions.push_back(|sm| {
+                    sm.cpu_state.pc &= 0x00FF;
+                    sm.cpu_state.pc |= u16::from(sm.pin_state.data_bus) << 8;
+                    
+                    set_pc_and_address_it(sm, sm.cpu_state.pc);
+                });
                 inc_pc_and_address_it(state_machine);
             }
             0x4C => {
