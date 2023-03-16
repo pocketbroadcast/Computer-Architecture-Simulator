@@ -96,7 +96,7 @@ mod detail {
             }
             0x0A => {
                 // ASL A
-                state_machine.cpu_state.a = state_machine.pin_state.data_bus << 1;
+                state_machine.cpu_state.a = state_machine.cpu_state.a << 1;
                 inc_pc_and_address_it(state_machine);
             }
             0x4C => {
