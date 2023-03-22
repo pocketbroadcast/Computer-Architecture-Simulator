@@ -3,7 +3,7 @@ mod pin_state;
 mod state_machine;
 
 use defer::defer;
-use crate::sim::cpu6502::state_machine::{execute, print_cpu_state};
+use super::cpu_6502::state_machine::{execute, print_cpu_state};
 
 use super::generic::Connection;
 use state_machine::StateMachine;

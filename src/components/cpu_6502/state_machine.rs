@@ -52,8 +52,7 @@ pub fn print_cpu_state(state_machine: &StateMachine, prefix: &str) {
 }
 
 mod detail {
-    use crate::sim::cpu6502::cpu_state::CPUState;
-
+    use super::CPUState;
     use super::StateMachine;
 
     pub fn exec_next(state_machine: &mut StateMachine) {
